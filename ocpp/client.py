@@ -4,28 +4,34 @@ import sys
 
 import websockets
 
-from ocpp.v16 import ChargePoint as cp
-from ocpp.v16 import call
-from ocpp.v16.enums import RegistrationStatus
+from ocpp.v201 import ChargePoint as cp
+from ocpp.v201 import call
 
 logging.basicConfig(level=logging.INFO)
 
 
 class ChargePoint(cp):
+    async def send_heartbeat(self, interval):
+        request = call.HeartbeatPayload()
+        while True:
+            await self.call(request)
+            await asyncio.sleep(interval)
+
     async def send_boot_notification(self):
         request = call.BootNotificationPayload(
-            charge_point_model="Optimus", charge_point_vendor="The Mobility House"
+            charging_station={"model": "Wallbox Optimus", "vendor_name": "The Mobility House"},
+            reason="PowerUp",
         )
-
         response = await self.call(request)
 
-        if response.status == RegistrationStatus.accepted:
+        if response.status == "Accepted":
             print("Connected to central system.")
+            await self.send_heartbeat(response.interval)
 
 
 async def main(host: str = 'ip6-localhost', port: int = 9000):
     async with websockets.connect(
-        f"ws://{host}:{port}/CP_1", subprotocols=["ocpp1.6"]
+        f"ws://{host}:{port}/CP_1", subprotocols=["ocpp2.0.1"]
     ) as ws:
 
         cp = ChargePoint("CP_1", ws)
