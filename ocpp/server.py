@@ -6,6 +6,7 @@ import websockets
 from ocpp.routing import on
 from ocpp.v201 import ChargePoint as cp
 from ocpp.v201 import call_result
+from websockets import Subprotocol
 
 logging.basicConfig(level=logging.INFO)
 
@@ -19,7 +20,6 @@ class ChargePoint(cp):
 
     @on("Heartbeat")
     def on_heartbeat(self):
-        print("Got a Heartbeat!")
         return call_result.HeartbeatPayload(
             current_time=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
         )
@@ -56,7 +56,7 @@ async def on_connect(websocket, path):
 
 async def main():
     server = await websockets.serve(
-        on_connect, "::", 9000, subprotocols=["ocpp2.0.1"]
+        on_connect, "::", 9000, subprotocols=[Subprotocol("ocpp2.0.1")]
     )
 
     logging.info("Server Started listening to new connections...")
