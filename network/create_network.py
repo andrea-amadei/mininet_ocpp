@@ -20,7 +20,7 @@ try:
     for h in net.hosts:
         if h.name in TERMINAL_SPAWN:
             for i in range(TERMINAL_SPAWN[h.name]):
-                h.cmdPrint(f'/usr/bin/dbus-launch ./new_terminal.sh {h.name} &')
+                h.cmdPrint(f'/usr/bin/dbus-launch ./scripts/new_terminal.sh {h.name} &')
 
     IPCLI(net)
 
