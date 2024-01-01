@@ -1,19 +1,22 @@
 import asyncio
 import logging
+from asyncio import CancelledError
 from datetime import datetime
 import websockets
 
 from ocpp.routing import on
-from ocpp.v201 import ChargePoint as cp
+from ocpp.v201 import ChargePoint as Cp
 from ocpp.v201 import call_result
 from websockets import Subprotocol
 
 logging.basicConfig(level=logging.INFO)
 
 
-class ChargePoint(cp):
+class ChargePoint(Cp):
     @on("BootNotification")
     def on_boot_notification(self, charging_station, reason, **kwargs):
+        logging.info(f"Got boot notification from {charging_station} for reason {reason}")
+
         return call_result.BootNotificationPayload(
             current_time=datetime.utcnow().isoformat(), interval=10, status="Accepted"
         )
@@ -26,43 +29,40 @@ class ChargePoint(cp):
 
 
 async def on_connect(websocket, path):
-    """For every new charge point that connects, create a ChargePoint
-    instance and start listening for messages.
-    """
+    # Check if protocol is specified
     try:
         requested_protocols = websocket.request_headers["Sec-WebSocket-Protocol"]
     except KeyError:
-        logging.error("Client hasn't requested any Subprotocol. Closing Connection")
+        logging.error("Client hasn't requested any protocol. Closing Connection")
         return await websocket.close()
+
+    # Check if protocol matches with the one on the server
     if websocket.subprotocol:
         logging.info("Protocols Matched: %s", websocket.subprotocol)
     else:
-        # In the websockets lib if no subprotocols are supported by the
-        # client and the server, it proceeds without a subprotocol,
-        # so we have to manually close the connection.
-        logging.warning(
-            "Protocols Mismatched | Expected Subprotocols: %s,"
-            " but client supports  %s | Closing connection",
-            websocket.available_subprotocols,
-            requested_protocols,
-        )
+        logging.warning(f"Protocols Mismatched: client is using {websocket.subprotocol}. Closing connection")
         return await websocket.close()
 
+    # Get id from path
     charge_point_id = path.strip("/")
+
+    # Initialize CP
     cp = ChargePoint(charge_point_id, websocket)
 
+    # Start
     await cp.start()
 
 
 async def main():
+    # Start websocket with callback function
     server = await websockets.serve(
         on_connect, "::", 9000, subprotocols=[Subprotocol("ocpp2.0.1")]
     )
-
     logging.info("Server Started listening to new connections...")
+
+    # Wait for connection to be closed
     await server.wait_closed()
 
 
 if __name__ == "__main__":
-    # asyncio.run() is used when running this example with Python >= 3.7v
     asyncio.run(main())
