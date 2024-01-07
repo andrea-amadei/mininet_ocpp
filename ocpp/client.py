@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 
+import aioconsole
 import websockets
 
 from ocpp.v201 import ChargePoint as Cp
@@ -12,8 +13,8 @@ from websockets import Subprotocol
 logging.basicConfig(level=logging.ERROR)
 
 
-def wait_for_button_press(message: str):
-    input(f'{message} | Press any key to continue...')
+async def wait_for_button_press(message: str):
+    await aioconsole.ainput(f'{message} | Press any key to continue...')
 
 
 class ChargePoint(Cp):
@@ -50,7 +51,7 @@ class ChargePoint(Cp):
 
 
             # Press any button
-            wait_for_button_press('AUTHORIZATION')
+            await wait_for_button_press('AUTHORIZATION')
 
             # Send authorization request
             response = await self.send_authorize('AA12345')
