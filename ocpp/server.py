@@ -1,9 +1,8 @@
 import asyncio
 import logging
-from asyncio import CancelledError
 from datetime import datetime
-import websockets
 
+import websockets
 from ocpp.routing import on
 from ocpp.v201 import ChargePoint as Cp
 from ocpp.v201 import call_result
@@ -13,6 +12,9 @@ logging.basicConfig(level=logging.INFO)
 
 
 class ChargePoint(Cp):
+
+    is_authorized = False
+
     @on("BootNotification")
     def on_boot_notification(self, charging_station, reason, **kwargs):
         logging.info(f"Got boot notification from {charging_station} for reason {reason}")
@@ -26,6 +28,17 @@ class ChargePoint(Cp):
         return call_result.HeartbeatPayload(
             current_time=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
         )
+
+    @on("Authorize")
+    def on_authorize(self, id_token, **kwargs):
+        logging.info(f"Got authorization request from {id_token}")
+
+        if self.is_authorized:
+            status = 'ConcurrentTx'
+        else:
+            status = 'Accepted'
+
+        return call_result.AuthorizePayload(id_token_info={"status": status})
 
 
 async def on_connect(websocket, path):

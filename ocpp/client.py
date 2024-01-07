@@ -9,7 +9,11 @@ from ocpp.v201 import ChargePoint as Cp
 from ocpp.v201 import call
 from websockets import Subprotocol
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.ERROR)
+
+
+def wait_for_button_press(message: str):
+    input(f'{message} | Press any key to continue...')
 
 
 class ChargePoint(Cp):
@@ -22,6 +26,14 @@ class ChargePoint(Cp):
             # Wait for interval
             await asyncio.sleep(interval)
 
+    async def send_authorize(self, token):
+        return await self.call(call.AuthorizePayload(
+            id_token={
+                'idToken': token,
+                'type': 'ISO14443'
+            }
+        ))
+
     async def send_boot_notification(self):
         request = call.BootNotificationPayload(
             charging_station={"model": "Wallbox Optimus", "vendor_name": "The Mobility House"},
@@ -31,11 +43,27 @@ class ChargePoint(Cp):
 
         # If boot notification is accepted
         if response.status == "Accepted":
-            logging.info("Connected to central system")
+            print("Connected to central system!")
 
             # Schedule heartbeat to be run in background
             heartbeat_task = asyncio.create_task(self.send_heartbeat(response.interval))
 
+
+            # Press any button
+            wait_for_button_press('AUTHORIZATION')
+
+            # Send authorization request
+            response = await self.send_authorize('AA12345')
+
+            # Check if authorization was accepted
+            if response.id_token_info['status'] != "Accepted":
+                logging.error("Authorization failed")
+                return
+            else:
+                print("Authorization successful!")
+
+
+            # Await for heartbeat task to end (never)
             await heartbeat_task
 
 
@@ -57,7 +85,9 @@ async def main(host: str = None, port: int = 9000):
 
 
 if __name__ == "__main__":
+    # Get host and port from command line, if not default values of main function will be used
     arg_names = ['host', 'port']
     args = dict(zip(arg_names, sys.argv[1:]))
 
+    # Run async function
     asyncio.run(main(**args))
