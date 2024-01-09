@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import sys
+from uuid import uuid4
+from datetime import datetime
 
 import aioconsole
 import websockets
@@ -11,8 +13,12 @@ from websockets import Subprotocol
 logging.basicConfig(level=logging.ERROR)
 
 
+def _get_current_time() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
+
+
 class ChargePoint(Cp):
-    async def send_heartbeat(self, interval):
+    async def send_heartbeat(self, interval: int = 10):
         request = call.HeartbeatPayload()
 
         while True:
@@ -21,12 +27,51 @@ class ChargePoint(Cp):
             # Wait for interval
             await asyncio.sleep(interval)
 
-    async def send_authorize(self, token):
+    async def send_authorize(self, token: str):
         return await self.call(call.AuthorizePayload(
             id_token={
                 'idToken': token,
                 'type': 'ISO14443'
             }
+        ))
+
+    async def send_status_notification(self, connector_status: str, evse_id: int = 0, connector_id: int = 0):
+        return await self.call(call.StatusNotificationPayload(
+            timestamp=_get_current_time(),
+            connector_status=connector_status,
+            evse_id=evse_id,
+            connector_id=connector_id
+        ))
+
+    async def send_transaction_event_authorized(self, event_type: str, transaction_id: str, seq_no: int, token: str):
+        return await self.call(call.TransactionEventPayload(
+            timestamp=_get_current_time(),
+            event_type=event_type,
+            seq_no=seq_no,
+            transaction_info={'transactionId': transaction_id},
+
+            trigger_reason='Authorized',
+            id_token={'idToken': token, 'type': 'ISO14443'}
+        ))
+
+    async def send_transaction_event_cable_plugged_in(self, event_type: str, transaction_id: str, seq_no: int):
+        return await self.call(call.TransactionEventPayload(
+            timestamp=_get_current_time(),
+            event_type=event_type,
+            seq_no=seq_no,
+            transaction_info={'transactionId': transaction_id},
+
+            trigger_reason='CablePluggedIn'
+        ))
+
+    async def send_transaction_event_charging_state_changed(self, event_type: str, transaction_id: str, seq_no: int, charging_state: str):
+        return await self.call(call.TransactionEventPayload(
+            timestamp=_get_current_time(),
+            event_type=event_type,
+            seq_no=seq_no,
+            transaction_info={'transactionId': transaction_id, 'chargingState': charging_state},
+
+            trigger_reason='ChargingStateChanged',
         ))
 
     async def send_boot_notification(self):
