@@ -100,22 +100,58 @@ class ChargePoint(Cp):
 
 
 async def _wait_for_button_press(message: str):
-    await aioconsole.ainput(f'{message} | Press any key to continue...')
+    await aioconsole.ainput(f'\n{message} | Press any key to continue...\n')
 
 
 async def run_simulation(cp: ChargePoint):
-    # Start authorization
+    # Generate unique ID for future transaction
+    transaction_id = str(uuid4())
+    # Use any RFID token
+    rfid_token = 'AA12345'
+
+    # === AUTHORIZATION ===
+
     await _wait_for_button_press('AUTHORIZATION')
 
     # Send authorization request
-    response = await cp.send_authorize('AA12345')
+    response = await cp.send_authorize(rfid_token)
 
     # Check if authorization was accepted
     if response.id_token_info['status'] != "Accepted":
         logging.error("Authorization failed")
         return
     else:
-        print("Authorization successful!")
+        print("Charging point authorization successful!")
+
+    # Send authorized transaction event
+    response = await cp.send_transaction_event_authorized('Started', transaction_id, 1, rfid_token)
+
+    # Check if authorization was accepted
+    if response.id_token_info['status'] != "Accepted":
+        logging.error("Authorization failed")
+        return
+    else:
+        print(f"Central authorization successful! Server message: '{response.updated_personal_message['content']}'")
+
+    # === PLUG IN CABLE ===
+
+    await _wait_for_button_press('PLUG IN CABLE')
+
+    # Send occupied notification (no meaningful response)
+    await cp.send_status_notification('Occupied')
+    print("Sent status notification for occupied cable")
+
+    # Send cable plugged in transaction event
+    response = await cp.send_transaction_event_cable_plugged_in('Updated', transaction_id, 2)
+    print(f"Cable plug in successful! Server message: '{response.updated_personal_message['content']}'")
+
+    # === START CHARGING ===
+
+    await _wait_for_button_press('START CHARGING')
+
+    # Send cable plugged in transaction event
+    response = await cp.send_transaction_event_charging_state_changed('Updated', transaction_id, 3, 'Charging')
+    print(f"Started charging! Server message: '{response.updated_personal_message['content']}'")
 
 
 async def main(host: str = "[::1]", port: int = 9000):
