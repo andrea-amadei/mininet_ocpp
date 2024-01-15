@@ -45,7 +45,7 @@ def _check_authorized(id_token: Dict) -> str:
     return 'Accepted'
 
 
-class ChargePoint(Cp):
+class ChargePointServer(Cp):
 
     is_authorized: bool = False
     status: str = 'Available'
@@ -190,7 +190,7 @@ async def on_connect(websocket, path):
     charge_point_id = path.strip("/")
 
     # Initialize CP
-    cp = ChargePoint(charge_point_id, websocket)
+    cp = ChargePointServer(charge_point_id, websocket)
 
     # Start
     await cp.start()
