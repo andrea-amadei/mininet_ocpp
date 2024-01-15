@@ -1,14 +1,15 @@
 import asyncio
 import logging
 import sys
-from uuid import uuid4
 from datetime import datetime
+from typing import Optional, Callable, Awaitable
 
 import aioconsole
 import websockets
 from ocpp.v201 import ChargePoint as Cp
 from ocpp.v201 import call
 from websockets import Subprotocol
+
 
 logging.basicConfig(level=logging.ERROR)
 
@@ -17,7 +18,7 @@ def _get_current_time() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
 
-class ChargePoint(Cp):
+class ChargePointClient(Cp):
     async def send_heartbeat(self, interval: int = 10):
         request = call.HeartbeatPayload()
 
@@ -74,7 +75,7 @@ class ChargePoint(Cp):
             trigger_reason='ChargingStateChanged',
         ))
 
-    async def send_boot_notification(self):
+    async def send_boot_notification(self, async_runnable: Optional[Callable[['ChargePointClient'], Awaitable[None]]] = None):
         # Send boot notification
         request = call.BootNotificationPayload(
             charging_station={"model": "Wallbox Optimus", "vendor_name": "The Mobility House"},
@@ -93,82 +94,39 @@ class ChargePoint(Cp):
         heartbeat_task = asyncio.create_task(self.send_heartbeat(response.interval))
 
         # Run simulation
-        await run_simulation(self)
+        if async_runnable is not None:
+            await async_runnable(self)
 
         # Await for heartbeat task to end (never)
         await heartbeat_task
 
 
-async def _wait_for_button_press(message: str):
-    await aioconsole.ainput(f'\n{message} | Press any key to continue...\n')
-
-
-async def run_simulation(cp: ChargePoint):
-    # Generate unique ID for future transaction
-    transaction_id = str(uuid4())
-    # Use any RFID token
-    rfid_token = 'AA12345'
-
-    # === AUTHORIZATION ===
-
-    await _wait_for_button_press('AUTHORIZATION')
-
-    # Send authorization request
-    response = await cp.send_authorize(rfid_token)
-
-    # Check if authorization was accepted
-    if response.id_token_info['status'] != "Accepted":
-        logging.error("Authorization failed")
-        return
-    else:
-        print("Charging point authorization successful!")
-
-    # Send authorized transaction event
-    response = await cp.send_transaction_event_authorized('Started', transaction_id, 1, rfid_token)
-
-    # Check if authorization was accepted
-    if response.id_token_info['status'] != "Accepted":
-        logging.error("Authorization failed")
-        return
-    else:
-        print(f"Central authorization successful! Server message: '{response.updated_personal_message['content']}'")
-
-    # === PLUG IN CABLE ===
-
-    await _wait_for_button_press('PLUG IN CABLE')
-
-    # Send occupied notification (no meaningful response)
-    await cp.send_status_notification('Occupied')
-    print("Sent status notification for occupied cable")
-
-    # Send cable plugged in transaction event
-    response = await cp.send_transaction_event_cable_plugged_in('Updated', transaction_id, 2)
-    print(f"Cable plug in successful! Server message: '{response.updated_personal_message['content']}'")
-
-    # === START CHARGING ===
-
-    await _wait_for_button_press('START CHARGING')
-
-    # Send cable plugged in transaction event
-    response = await cp.send_transaction_event_charging_state_changed('Updated', transaction_id, 3, 'Charging')
-    print(f"Started charging! Server message: '{response.updated_personal_message['content']}'")
-
-
-async def main(host: str = "[::1]", port: int = 9000):
+# Launches client and initializes server connection
+async def launch_client(
+        server: str = "[::1]",
+        port: int = 9000,
+        async_runnable: Optional[Callable[['ChargePointClient'], Awaitable[None]]] = None
+):
     # Open websocket
     async with websockets.connect(
-            f"ws://{host}:{port}/CP_1", subprotocols=[Subprotocol("ocpp2.0.1")]
+            f"ws://{server}:{port}/CP_1", subprotocols=[Subprotocol("ocpp2.0.1")]
     ) as ws:
 
         # Initialize CP and start it
-        cp = ChargePoint("CP_1", ws)
-        await asyncio.gather(cp.start(), cp.send_boot_notification())
+        cp = ChargePointClient("CP_1", ws)
+        await asyncio.gather(cp.start(), cp.send_boot_notification(async_runnable))
+
+
+def get_host_and_port() -> dict[str, str]:
+    # Get host and port from command line, if not default values of main function will be used
+    arg_names = ['server', 'port']
+    return dict(zip(arg_names, sys.argv[1:]))
+
+
+# Prints the given message and awaits for a button press, in an asynchronous way
+async def wait_for_button_press(message: str):
+    await aioconsole.ainput(f'\n{message} | Press any key to continue...\n')
 
 
 if __name__ == "__main__":
-    # Get host and port from command line, if not default values of main function will be used
-    arg_names = ['host', 'port']
-    args = dict(zip(arg_names, sys.argv[1:]))
-
-    # Run async function
-    asyncio.run(main(**args))
+    asyncio.run(launch_client(**get_host_and_port()))
