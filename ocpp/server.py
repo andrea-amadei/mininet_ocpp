@@ -12,6 +12,9 @@ from websockets import Subprotocol
 logging.basicConfig(level=logging.INFO)
 
 
+ACCEPTED_TOKENS = ['AA12345']
+
+
 def _get_current_time() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
@@ -33,6 +36,10 @@ def _check_authorized(id_token: Dict) -> str:
     # Check if type is correct
     if id_token['type'] not in ('Central', 'eMAID', 'ISO14443', 'ISO15693'):
         return 'Unknown'
+
+    # Check token is allowed
+    if id_token['id_token'] not in ACCEPTED_TOKENS:
+        return 'Invalid'
 
     # Always authorized
     return 'Accepted'
