@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.ERROR)
 
 
 # ID of the RFID token used to authenticate
-RFID_TOKEN = 'AA12345'
+RFID_TOKEN = '11223344'
 
 
 # Emulates a normal charging process:

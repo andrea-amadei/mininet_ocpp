@@ -1,10 +1,12 @@
 import asyncio
 import logging
+import re
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 import websockets
-from ocpp.routing import on
+import yaml
+from ocpp.routing import on, after
 from ocpp.v201 import ChargePoint as Cp
 from ocpp.v201 import call_result
 from websockets import Subprotocol
@@ -12,7 +14,13 @@ from websockets import Subprotocol
 logging.basicConfig(level=logging.INFO)
 
 
-ACCEPTED_TOKENS = ['AA12345']
+# Will be loaded from server_config.yaml on startup
+ACCEPTED_TOKENS = []
+ACCEPTED_CHARGES = []
+ALLOW_MULTIPLE_SERIAL_NUMBERS = True
+
+# Holds ID and instance of all connected clients
+connected_clients = []
 
 
 def _get_current_time() -> str:
@@ -27,26 +35,65 @@ def _get_personal_message(message: str) -> dict:
     }
 
 # Check if user can be authorized
-# User is always authorized unless format is wrong
 def _check_authorized(id_token: Dict) -> str:
-    # Check of type and idToken fields exist
-    if 'type' not in id_token or 'id_token' not in id_token:
-        return 'Invalid'
-
     # Check if type is correct
     if id_token['type'] not in ('Central', 'eMAID', 'ISO14443', 'ISO15693'):
         return 'Unknown'
 
-    # Check token is allowed
-    if id_token['id_token'] not in ACCEPTED_TOKENS:
+    # Check if token is hexadecimal
+    try:
+        # Check if it can be converted to int from base 16
+        int(id_token['id_token'], 16)
+    except ValueError:
+        return 'Unknown'
+
+    # Check if it respects the specs of the type
+    if id_token['type'] == 'Central':
+        # Everything is accepted
+        pass
+
+    elif id_token['type'] == 'eMAID':
+        # Not allowed in this implementation
         return 'Invalid'
 
-    # Always authorized
-    return 'Accepted'
+    elif id_token['type'] == 'ISO14443':
+        # Check if length is either 4 or 7 bytes
+        if len(id_token['id_token']) != 8 and len(id_token['id_token']) != 14:
+            return 'Invalid'
+
+    elif id_token['type'] == 'ISO15693':
+        # Check if length is 8 bytes
+        if len(id_token['id_token']) != 16:
+            return 'Invalid'
+
+    else:
+        return 'Unknown'
+
+    # Check if token is in allowed list
+    for i in ACCEPTED_TOKENS:
+        if i['type'] == id_token['type'] and i['id_token'] == id_token['id_token']:
+            return 'Accepted'
+
+    # If no matching token was found in list
+    return 'Invalid'
+
+
+# Check if new CP is authorized based on vendor, model and serial number
+def _check_charger(vendor_name: str, model: str, serial_number: str) -> bool:
+    for i in ACCEPTED_CHARGES:
+        # Check if vendor_name and model match
+        if i['vendor_name'] == vendor_name and i['model'] == model:
+            # Check if regex matches
+            if re.match(i['serial_number_regex'], serial_number):
+                return True
+
+    # If no model match, return False
+    return False
 
 
 class ChargePointServer(Cp):
 
+    is_booted: bool = False
     is_authorized: bool = False
     status: str = 'Available'
     charging_state: str = 'Idle'
@@ -59,9 +106,19 @@ class ChargePointServer(Cp):
     ):
         logging.info(f"Got boot notification from {charging_station} for reason {reason}")
 
+        # Check if new CP has valid vendor, model and serial number
+        self.is_booted = _check_charger(**charging_station)
+
         return call_result.BootNotificationPayload(
-            current_time=_get_current_time(), interval=10, status="Accepted"
+            current_time=_get_current_time(), interval=10, status=('Accepted' if self.is_booted else 'Rejected')
         )
+
+    @after("BootNotification")
+    async def after_boot_notification(self, *args, **kwargs):
+        # If the CP was not booted (which means rejected)
+        if not self.is_booted:
+            # Force close websocket
+            await self._connection.close()
 
     @on("Heartbeat")
     def on_heartbeat(self,
@@ -183,7 +240,7 @@ async def on_connect(websocket, path):
     if websocket.subprotocol:
         logging.info("Protocols Matched: %s", websocket.subprotocol)
     else:
-        logging.warning(f"Protocols Mismatched: client is using {websocket.subprotocol}. Closing connection")
+        logging.error(f"Protocols Mismatched: client is using {websocket.subprotocol}. Closing connection")
         return await websocket.close()
 
     # Get id from path
@@ -192,8 +249,24 @@ async def on_connect(websocket, path):
     # Initialize CP
     cp = ChargePointServer(charge_point_id, websocket)
 
-    # Start
-    await cp.start()
+    # If only one CP per id is allowed, check it doesn't exist
+    if not ALLOW_MULTIPLE_SERIAL_NUMBERS:
+        for cp_id, cp in connected_clients:
+            if cp_id == charge_point_id:
+                logging.error(f"Client tried to connect with ID {cp_id}, but another client already exists")
+                return await websocket.close()
+
+    # Add to list of connected clients
+    connected_clients.append((charge_point_id, cp))
+
+    # Start and await for disconnection
+    try:
+        await cp.start()
+    except websockets.exceptions.ConnectionClosed:
+        logging.info(f"Client {charge_point_id} disconnected")
+
+        # Remove from list of connected clients
+        connected_clients.remove((charge_point_id, cp))
 
 
 async def main():
@@ -207,5 +280,40 @@ async def main():
     await server.wait_closed()
 
 
+def load_config() -> bool:
+    global ACCEPTED_TOKENS
+    global ACCEPTED_CHARGES
+    global ALLOW_MULTIPLE_SERIAL_NUMBERS
+
+    # Open server config file
+    with open("server_config.yaml", "r") as file:
+        try:
+            # Parse YAML content
+            content = yaml.safe_load(file)
+
+            # Set accepted tokens
+            if "accepted_tokens" in content:
+                ACCEPTED_TOKENS = content["accepted_tokens"]
+
+            # Set accepted chargers
+            if "accepted_chargers" in content:
+                ACCEPTED_CHARGES = content["accepted_chargers"]
+
+            # Set security parameters
+            if "security" in content and "allow_multiple_serial_numbers" in content["security"]:
+                ALLOW_MULTIPLE_SERIAL_NUMBERS = content["security"]["allow_multiple_serial_numbers"]
+
+        except yaml.YAMLError as e:
+            print('Failed to parse server_config.yaml')
+            return False
+
+        return True
+
+
 if __name__ == "__main__":
+    # Load config file
+    if not load_config():
+        quit(1)
+
+    # Launch server
     asyncio.run(main())
