@@ -65,4 +65,11 @@ async def charge_normally(cp: ChargePointClient):
 
 
 if __name__ == "__main__":
-    asyncio.run(launch_client(**get_host_and_port(), async_runnable=charge_normally))
+
+    config = {
+        'vendor_name': 'EurecomCharge',
+        'model': 'E2507',
+        'serial_number': 'E2507-8420-1274',
+    }
+
+    asyncio.run(launch_client(**config, **get_host_and_port(), async_runnable=charge_normally))
