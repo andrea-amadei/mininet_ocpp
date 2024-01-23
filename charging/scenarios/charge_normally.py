@@ -16,6 +16,8 @@ RFID_TOKEN = '11223344'
 #   2. Plug cable in
 #   3. Start charging
 async def charge_normally(cp: ChargePointClient):
+    cp.print_message('Connected to server')
+
     # Generate unique ID for future transaction
     transaction_id = str(uuid4())
 
@@ -24,14 +26,14 @@ async def charge_normally(cp: ChargePointClient):
     await wait_for_button_press('AUTHORIZATION')
 
     # Send authorization request
-    response = await cp.send_authorize(RFID_TOKEN)
+    response = await cp.send_authorize({'type': 'ISO14443', 'id_token': RFID_TOKEN})
 
     # Check if authorization was accepted
     if response.id_token_info['status'] != "Accepted":
         logging.error("Authorization failed")
         return
     else:
-        print("Charging point authorization successful!")
+        cp.print_message("Charging point authorization successful!")
 
     # Send authorized transaction event
     response = await cp.send_transaction_event_authorized('Started', transaction_id, 1, RFID_TOKEN)
@@ -41,7 +43,7 @@ async def charge_normally(cp: ChargePointClient):
         logging.error("Authorization failed")
         return
     else:
-        print(f"Central authorization successful! Server message: '{response.updated_personal_message['content']}'")
+        cp.print_message(f"Central authorization successful! Server message: '{response.updated_personal_message['content']}'")
 
     # === PLUG IN CABLE ===
 
@@ -49,11 +51,11 @@ async def charge_normally(cp: ChargePointClient):
 
     # Send occupied notification (no meaningful response)
     await cp.send_status_notification('Occupied')
-    print("Sent status notification for occupied cable")
+    cp.print_message("Sent status notification for occupied cable")
 
     # Send cable plugged in transaction event
     response = await cp.send_transaction_event_cable_plugged_in('Updated', transaction_id, 2)
-    print(f"Cable plug in successful! Server message: '{response.updated_personal_message['content']}'")
+    cp.print_message(f"Cable plug in successful! Server message: '{response.updated_personal_message['content']}'")
 
     # === START CHARGING ===
 
@@ -61,7 +63,7 @@ async def charge_normally(cp: ChargePointClient):
 
     # Send cable plugged in transaction event
     response = await cp.send_transaction_event_charging_state_changed('Updated', transaction_id, 3, 'Charging')
-    print(f"Started charging! Server message: '{response.updated_personal_message['content']}'")
+    cp.print_message(f"Started charging! Server message: '{response.updated_personal_message['content']}'")
 
 
 if __name__ == "__main__":
