@@ -2,14 +2,13 @@ import asyncio
 import logging
 import sys
 from datetime import datetime
-from typing import Optional, Callable, Awaitable
+from typing import Optional, Callable, Awaitable, Dict, Any
 
 import aioconsole
 import websockets
-from ocpp.v201 import ChargePoint as Cp
-from ocpp.v201 import call
+from ocpp.routing import on, after
+from ocpp.v201 import ChargePoint as Cp, call, call_result
 from websockets import Subprotocol
-
 
 logging.basicConfig(level=logging.ERROR)
 
@@ -17,8 +16,12 @@ logging.basicConfig(level=logging.ERROR)
 def _get_current_time() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
-
 class ChargePointClient(Cp):
+
+    def print_message(self, message: str):
+        print(f'[{self.id}] {message}')
+
+
     async def send_heartbeat(
         self,
         interval: int = 10
@@ -33,14 +36,9 @@ class ChargePointClient(Cp):
 
     async def send_authorize(
         self,
-        token: str
+        token: dict[str, str]
     ):
-        return await self.call(call.AuthorizePayload(
-            id_token={
-                'idToken': token,
-                'type': 'ISO14443'
-            }
-        ))
+        return await self.call(call.AuthorizePayload(id_token=token))
 
     async def send_status_notification(
         self,
@@ -121,8 +119,6 @@ class ChargePointClient(Cp):
         if response.status != "Accepted":
             logging.error("Authorization failed")
             return
-        else:
-            print("Connected to central system!")
 
         # Schedule heartbeat to be run in background
         heartbeat_task = asyncio.create_task(self.send_heartbeat(response.interval))
@@ -130,9 +126,28 @@ class ChargePointClient(Cp):
         # Run "runnable" function (if available) to implement a specific scenario
         if async_runnable is not None:
             await async_runnable(self)
+        else:
+            self.print_message("Connected to server")
 
         # Await for heartbeat task to end (never)
         await heartbeat_task
+
+    @on('ReserveNow')
+    def on_reserve_now(
+        self,
+        id: int,
+        expiry_date_time: str,
+        id_token: Dict,
+        connector_type: Optional[str] = None,
+        evse_id: Optional[int] = None,
+        group_id_token: Optional[Dict] = None,
+        custom_data: Optional[Dict[str, Any]] = None,
+    ):
+        self.print_message(f'Got a new reservation request {id} from {id_token}')
+
+        return call_result.ReserveNowPayload(
+            status='Accepted'
+        )
 
 
 # Launches client and initializes server connection
@@ -164,7 +179,7 @@ async def launch_client(
                 )
             )
         except websockets.exceptions.ConnectionClosed:
-            print("Connection was forcefully closed by the server")
+            print(f"[{serial_number}] Connection was forcefully closed by the server")
 
 
 def get_host_and_port() -> dict[str, str]:
