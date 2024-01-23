@@ -15,4 +15,5 @@ accepted_chargers:
     serial_number_regex: '^E2508-[0-9]{4}-[0-9]{4}$'
 
 security:
-  allow_multiple_serial_numbers: false
+  allow_multiple_serial_numbers: true
+  max_connected_clients: 100000

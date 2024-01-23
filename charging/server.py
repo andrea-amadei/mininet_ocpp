@@ -7,8 +7,7 @@ from typing import Optional, Dict, Any, List
 import websockets
 import yaml
 from ocpp.routing import on, after
-from ocpp.v201 import ChargePoint as Cp
-from ocpp.v201 import call_result
+from ocpp.v201 import ChargePoint as Cp, call, call_result
 from websockets import Subprotocol
 
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +17,7 @@ logging.basicConfig(level=logging.INFO)
 ACCEPTED_TOKENS = []
 ACCEPTED_CHARGES = []
 ALLOW_MULTIPLE_SERIAL_NUMBERS = True
+MAX_CONNECTED_CLIENTS = 100_000
 
 # Holds ID and instance of all connected clients
 connected_clients = []
@@ -147,7 +147,6 @@ class ChargePointServer(Cp):
         connector_id: int,
         custom_data: Optional[Dict[str, Any]] = None
     ):
-        # TODO: implement multiple connectors support
         self.status = connector_status
 
         return call_result.StatusNotificationPayload()
@@ -227,6 +226,30 @@ class ChargePointServer(Cp):
             updated_personal_message=_get_personal_message("Not implemented")
         )
 
+    async def send_reserve_now(
+        self,
+        id: int,
+        expiry_date_time: str,
+        id_token: Dict,
+        connector_type: Optional[str] = None,
+        evse_id: Optional[int] = None,
+        group_id_token: Optional[Dict] = None,
+        custom_data: Optional[Dict[str, Any]] = None
+    ):
+        logging.info("send_reserve_now")
+
+        await self.call(call.ReserveNowPayload(
+            id=id,
+            expiry_date_time=expiry_date_time,
+            id_token=id_token,
+            connector_type=connector_type,
+            evse_id=evse_id,
+            group_id_token=group_id_token,
+            custom_data=custom_data
+        ))
+
+        logging.info("send_reserve_now awaited")
+
 
 async def on_connect(websocket, path):
     # Check if protocol is specified
@@ -259,6 +282,10 @@ async def on_connect(websocket, path):
     # Add to list of connected clients
     connected_clients.append((charge_point_id, cp))
 
+    if len(connected_clients) >= MAX_CONNECTED_CLIENTS:
+        logging.error("Server is overloaded, quitting")
+        quit(2)
+
     # Start and await for disconnection
     try:
         await cp.start()
@@ -269,21 +296,11 @@ async def on_connect(websocket, path):
         connected_clients.remove((charge_point_id, cp))
 
 
-async def main():
-    # Start websocket with callback function
-    server = await websockets.serve(
-        on_connect, "::", 9000, subprotocols=[Subprotocol("ocpp2.0.1")]
-    )
-    logging.info("Server Started listening to new connections...")
-
-    # Wait for connection to be closed
-    await server.wait_closed()
-
-
 def load_config() -> bool:
     global ACCEPTED_TOKENS
     global ACCEPTED_CHARGES
     global ALLOW_MULTIPLE_SERIAL_NUMBERS
+    global MAX_CONNECTED_CLIENTS
 
     # Open server config file
     with open("server_config.yaml", "r") as file:
@@ -300,8 +317,12 @@ def load_config() -> bool:
                 ACCEPTED_CHARGES = content["accepted_chargers"]
 
             # Set security parameters
-            if "security" in content and "allow_multiple_serial_numbers" in content["security"]:
-                ALLOW_MULTIPLE_SERIAL_NUMBERS = content["security"]["allow_multiple_serial_numbers"]
+            if "security" in content:
+                if "allow_multiple_serial_numbers" in content["security"]:
+                    ALLOW_MULTIPLE_SERIAL_NUMBERS = content["security"]["allow_multiple_serial_numbers"]
+
+                if "max_connected_clients" in content["security"]:
+                    MAX_CONNECTED_CLIENTS = content["security"]["max_connected_clients"]
 
         except yaml.YAMLError as e:
             print('Failed to parse server_config.yaml')
@@ -310,10 +331,19 @@ def load_config() -> bool:
         return True
 
 
-if __name__ == "__main__":
+async def main():
     # Load config file
     if not load_config():
         quit(1)
 
-    # Launch server
+    # Start websocket with callback function
+    server = await websockets.serve(
+        on_connect, "::", 9000, subprotocols=[Subprotocol("ocpp2.0.1")]
+    )
+
+    # Wait for server to be closed down
+    await server.wait_closed()
+
+
+if __name__ == "__main__":
     asyncio.run(main())
