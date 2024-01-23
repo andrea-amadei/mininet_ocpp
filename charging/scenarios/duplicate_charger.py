@@ -1,6 +1,7 @@
 import asyncio
 
 from charging.client import get_host_and_port, launch_client, ChargePointClient, wait_for_button_press
+from charging.api_client import send_reservation_request
 
 
 # ID of the RFID token used to authenticate
@@ -21,10 +22,10 @@ async def legit_client_runnable(cp: ChargePointClient):
 async def malicious_client_runnable(cp: ChargePointClient):
     cp.print_message("Malicious client is connected (with the same serial number)")
 
-    # await wait_for_button_press('SEND RESERVATION REQUEST FROM EXTERNAL APP')
+    await wait_for_button_press('SEND RESERVATION REQUEST FROM EXTERNAL APP')
 
     # Send reservation request to all chargers with given serial number
-    # send_reservation(CONFIG['serial_number'], {'type': 'ISO14443', 'id_token': RFID_TOKEN})
+    send_reservation_request(CONFIG['serial_number'], 'ISO14443', RFID_TOKEN)
 
 
 async def main():

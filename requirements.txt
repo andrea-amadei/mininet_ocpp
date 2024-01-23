@@ -2,3 +2,5 @@ websockets
 ocpp
 aioconsole
 yaml
+flask
+requests

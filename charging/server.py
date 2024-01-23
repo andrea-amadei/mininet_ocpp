@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
 import websockets
@@ -9,6 +9,8 @@ import yaml
 from ocpp.routing import on, after
 from ocpp.v201 import ChargePoint as Cp, call, call_result
 from websockets import Subprotocol
+
+from charging.db import get_event, purge_events
 
 logging.basicConfig(level=logging.INFO)
 
@@ -18,6 +20,7 @@ ACCEPTED_TOKENS = []
 ACCEPTED_CHARGES = []
 ALLOW_MULTIPLE_SERIAL_NUMBERS = True
 MAX_CONNECTED_CLIENTS = 100_000
+HEARTBEAT_INTERVAL = 10
 
 # Holds ID and instance of all connected clients
 connected_clients = []
@@ -98,6 +101,8 @@ class ChargePointServer(Cp):
     status: str = 'Available'
     charging_state: str = 'Idle'
 
+    last_reservation_id = 0
+
     @on("BootNotification")
     def on_boot_notification(self,
         charging_station: Dict,
@@ -110,7 +115,9 @@ class ChargePointServer(Cp):
         self.is_booted = _check_charger(**charging_station)
 
         return call_result.BootNotificationPayload(
-            current_time=_get_current_time(), interval=10, status=('Accepted' if self.is_booted else 'Rejected')
+            current_time=_get_current_time(),
+            interval=HEARTBEAT_INTERVAL,
+            status=('Accepted' if self.is_booted else 'Rejected')
         )
 
     @after("BootNotification")
@@ -226,6 +233,31 @@ class ChargePointServer(Cp):
             updated_personal_message=_get_personal_message("Not implemented")
         )
 
+    async def check_reservations(self, interval: int = 1):
+        while True:
+            # Get first reserve_now event
+            data = get_event('reserve_now', target=self.id, first_acceptable_id=self.last_reservation_id + 1)
+
+            # If event is there
+            if data is not None:
+                logging.info(f"Processing event reserve_now with data {data}")
+
+                event_id, token = data
+
+                # Send ReserveNow payload
+                await self.send_reserve_now(
+                    id=event_id,
+                    expiry_date_time=(datetime.utcnow() + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S") + "Z",
+                    id_token=token
+                )
+
+                # Set new last reservation id to current id
+                self.last_reservation_id = event_id
+
+            # Wait for set time
+            await asyncio.sleep(interval)
+
+
     async def send_reserve_now(
         self,
         id: int,
@@ -236,8 +268,6 @@ class ChargePointServer(Cp):
         group_id_token: Optional[Dict] = None,
         custom_data: Optional[Dict[str, Any]] = None
     ):
-        logging.info("send_reserve_now")
-
         await self.call(call.ReserveNowPayload(
             id=id,
             expiry_date_time=expiry_date_time,
@@ -247,8 +277,6 @@ class ChargePointServer(Cp):
             group_id_token=group_id_token,
             custom_data=custom_data
         ))
-
-        logging.info("send_reserve_now awaited")
 
 
 async def on_connect(websocket, path):
@@ -288,7 +316,7 @@ async def on_connect(websocket, path):
 
     # Start and await for disconnection
     try:
-        await cp.start()
+        await asyncio.gather(cp.start(), cp.check_reservations())
     except websockets.exceptions.ConnectionClosed:
         logging.info(f"Client {charge_point_id} disconnected")
 
@@ -301,6 +329,7 @@ def load_config() -> bool:
     global ACCEPTED_CHARGES
     global ALLOW_MULTIPLE_SERIAL_NUMBERS
     global MAX_CONNECTED_CLIENTS
+    global HEARTBEAT_INTERVAL
 
     # Open server config file
     with open("server_config.yaml", "r") as file:
@@ -324,6 +353,9 @@ def load_config() -> bool:
                 if "max_connected_clients" in content["security"]:
                     MAX_CONNECTED_CLIENTS = content["security"]["max_connected_clients"]
 
+                if "heartbeat_interval" in content["security"]:
+                    HEARTBEAT_INTERVAL = content["security"]["heartbeat_interval"]
+
         except yaml.YAMLError as e:
             print('Failed to parse server_config.yaml')
             return False
@@ -335,6 +367,9 @@ async def main():
     # Load config file
     if not load_config():
         quit(1)
+
+    # Purge DB
+    purge_events()
 
     # Start websocket with callback function
     server = await websockets.serve(

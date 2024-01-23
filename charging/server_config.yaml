@@ -17,3 +17,4 @@ accepted_chargers:
 security:
   allow_multiple_serial_numbers: true
   max_connected_clients: 100000
+  heartbeat_interval: 60
