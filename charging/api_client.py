@@ -20,9 +20,13 @@ def cli(host: str = '[::1]', port: int = 8000):
 @click.option('--serial', help='The serial number of the charger', prompt='Serial number', required=True, type=str)
 @click.option('--token-type', help='The type of the token', prompt='Token type', required=True, type=click.Choice(['Central', 'eMAID', 'ISO14443', 'ISO15693']))
 @click.option('--token-id', help='The ID of the token', prompt='Token id', required=True, type=str)
-def send_reservation_request(serial: str, token_type: str, token_id: str):
+def _send_reservation_request(serial: str, token_type: str, token_id: str):
+    send_reservation_request(serial, token_type, token_id, g_host, g_port)
+
+
+def send_reservation_request(serial: str, token_type: str, token_id: str, host: str = '[::1]', port: int = 8000):
     # Send request
-    response = requests.get(f'http://{g_host}:{g_port}/api/reserve_now/{serial}?type={token_type}&id_token={token_id}')
+    response = requests.get(f'http://{host}:{port}/api/reserve_now/{serial}?type={token_type}&id_token={token_id}')
 
     # Check if the request was not successful (status code 200)
     if response.status_code != 200:
