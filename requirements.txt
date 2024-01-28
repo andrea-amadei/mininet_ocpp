@@ -1,6 +1,7 @@
 websockets
 ocpp
 aioconsole
-yaml
+pyyaml
 flask
 requests
+click
