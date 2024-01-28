@@ -16,11 +16,18 @@ logging.basicConfig(level=logging.ERROR)
 def _get_current_time() -> str:
     return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S") + "Z"
 
+
 class ChargePointClient(Cp):
 
-    def print_message(self, message: str):
-        print(f'[{self.id}] {message}')
+    def __init__(self, id, connection, printed_name: Optional[str] = None):
+        super().__init__(id, connection)
+        if printed_name is not None:
+            self.printed_name = printed_name
+        else:
+            self.printed_name = str(self.id)
 
+    def print_message(self, message: str):
+        print(f'[{self.printed_name}] {message}')
 
     async def send_heartbeat(
         self,
@@ -157,7 +164,8 @@ async def launch_client(
     vendor_name: str = 'Vendor',
     server: str = "[::1]",
     port: int = 9000,
-    async_runnable: Optional[Callable[[ChargePointClient], Awaitable[None]]] = None
+    async_runnable: Optional[Callable[[ChargePointClient], Awaitable[None]]] = None,
+    printed_name: Optional[str] = None
 ):
     # Open websocket
     async with websockets.connect(
@@ -165,7 +173,7 @@ async def launch_client(
     ) as ws:
 
         # Initialize CP
-        cp = ChargePointClient(serial_number, ws)
+        cp = ChargePointClient(serial_number, ws, printed_name)
 
         # Start it
         try:

@@ -33,7 +33,7 @@ async def main():
 
     # Launch legit client and authorize
     legit_client = asyncio.create_task(
-        launch_client(**CONFIG, **get_host_and_port(), async_runnable=legit_client_runnable)
+        launch_client(**CONFIG, **get_host_and_port(), async_runnable=legit_client_runnable, printed_name='Legit')
     )
 
     # Wait
@@ -41,7 +41,7 @@ async def main():
 
     # Launch malicious client and do the rest
     malicious_client = asyncio.create_task(
-        launch_client(**CONFIG, **get_host_and_port(), async_runnable=malicious_client_runnable)
+        launch_client(**CONFIG, **get_host_and_port(), async_runnable=malicious_client_runnable, printed_name='Malicious')
     )
 
     # Await
