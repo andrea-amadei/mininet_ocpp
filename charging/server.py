@@ -37,6 +37,7 @@ def _get_personal_message(message: str) -> dict:
         'content': message
     }
 
+
 # Check if user can be authorized
 def _check_authorized(id_token: Dict) -> str:
     # Check if type is correct
@@ -103,8 +104,34 @@ class ChargePointServer(Cp):
 
     last_reservation_id = 0
 
+    # Periodically check for new reservation requests
+    async def _check_reservations(self, interval: int = 1):
+        while True:
+            # Get first reserve_now event
+            data = get_event('reserve_now', target=self.id, first_acceptable_id=self.last_reservation_id + 1)
+
+            # If event is there
+            if data is not None:
+                logging.info(f"Processing event reserve_now with data {data}")
+
+                event_id, token = data
+
+                # Send ReserveNow payload
+                await self.send_reserve_now(
+                    id=event_id,
+                    expiry_date_time=(datetime.utcnow() + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S") + "Z",
+                    id_token=token
+                )
+
+                # Set new last reservation id to current id
+                self.last_reservation_id = event_id
+
+            # Wait for set time
+            await asyncio.sleep(interval)
+
     @on("BootNotification")
-    def on_boot_notification(self,
+    def on_boot_notification(
+        self,
         charging_station: Dict,
         reason: str,
         custom_data: Optional[Dict[str, Any]] = None
@@ -128,7 +155,8 @@ class ChargePointServer(Cp):
             await self._connection.close()
 
     @on("Heartbeat")
-    def on_heartbeat(self,
+    def on_heartbeat(
+        self,
         custom_data: Optional[Dict[str, Any]] = None
     ):
         return call_result.HeartbeatPayload(
@@ -136,7 +164,8 @@ class ChargePointServer(Cp):
         )
 
     @on("Authorize")
-    def on_authorize(self,
+    def on_authorize(
+        self,
         id_token: Dict,
         certificate: Optional[str] = None,
         iso15118_certificate_hash_data: Optional[List] = None,
@@ -147,7 +176,8 @@ class ChargePointServer(Cp):
         return call_result.AuthorizePayload(id_token_info={"status": _check_authorized(id_token)})
 
     @on("StatusNotification")
-    def on_status_notification(self,
+    def on_status_notification(
+        self,
         timestamp: str,
         connector_status: str,
         evse_id: int,
@@ -159,7 +189,8 @@ class ChargePointServer(Cp):
         return call_result.StatusNotificationPayload()
 
     @on("TransactionEvent")
-    def on_transaction_event(self,
+    def on_transaction_event(
+        self,
         event_type: str,
         timestamp: str,
         trigger_reason: str,
@@ -233,31 +264,6 @@ class ChargePointServer(Cp):
             updated_personal_message=_get_personal_message("Not implemented")
         )
 
-    async def check_reservations(self, interval: int = 1):
-        while True:
-            # Get first reserve_now event
-            data = get_event('reserve_now', target=self.id, first_acceptable_id=self.last_reservation_id + 1)
-
-            # If event is there
-            if data is not None:
-                logging.info(f"Processing event reserve_now with data {data}")
-
-                event_id, token = data
-
-                # Send ReserveNow payload
-                await self.send_reserve_now(
-                    id=event_id,
-                    expiry_date_time=(datetime.utcnow() + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S") + "Z",
-                    id_token=token
-                )
-
-                # Set new last reservation id to current id
-                self.last_reservation_id = event_id
-
-            # Wait for set time
-            await asyncio.sleep(interval)
-
-
     async def send_reserve_now(
         self,
         id: int,
@@ -316,7 +322,7 @@ async def on_connect(websocket, path):
 
     # Start and await for disconnection
     try:
-        await asyncio.gather(cp.start(), cp.check_reservations())
+        await asyncio.gather(cp.start(), cp._check_reservations())
     except websockets.exceptions.ConnectionClosed:
         logging.info(f"Client {charge_point_id} disconnected")
 
