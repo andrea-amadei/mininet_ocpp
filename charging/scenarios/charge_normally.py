@@ -8,7 +8,8 @@ logging.basicConfig(level=logging.ERROR)
 
 
 # ID of the RFID token used to authenticate
-RFID_TOKEN = '11223344'
+RFID_TOKEN = '1122334455667788'
+TOKEN_TYPE = 'ISO15693'
 
 
 # Emulates a normal charging process:
@@ -26,7 +27,7 @@ async def charge_normally(cp: ChargePointClient):
     await wait_for_button_press('AUTHORIZATION')
 
     # Send authorization request
-    response = await cp.send_authorize({'type': 'ISO14443', 'id_token': RFID_TOKEN})
+    response = await cp.send_authorize({'type': 'ISO15693', 'id_token': RFID_TOKEN})
 
     # Check if authorization was accepted
     if response.id_token_info['status'] != "Accepted":
@@ -36,7 +37,12 @@ async def charge_normally(cp: ChargePointClient):
         cp.print_message("Charging point authorization successful!")
 
     # Send authorized transaction event
-    response = await cp.send_transaction_event_authorized('Started', transaction_id, 1, RFID_TOKEN)
+    response = await cp.send_transaction_event_authorized(
+        'Started',
+        transaction_id,
+        1,
+        {'type': TOKEN_TYPE, 'id_token': RFID_TOKEN}
+    )
 
     # Check if authorization was accepted
     if response.id_token_info['status'] != "Accepted":

@@ -65,7 +65,7 @@ class ChargePointClient(Cp):
         event_type: str,
         transaction_id: str,
         seq_no: int,
-        token: str
+        id_token: dict[str, str]
     ):
         return await self.call(call.TransactionEventPayload(
             timestamp=_get_current_time(),
@@ -74,7 +74,7 @@ class ChargePointClient(Cp):
             transaction_info={'transactionId': transaction_id},
 
             trigger_reason='Authorized',
-            id_token={'idToken': token, 'type': 'ISO14443'}
+            id_token=id_token
         ))
 
     async def send_transaction_event_cable_plugged_in(
