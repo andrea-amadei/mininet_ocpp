@@ -1,7 +1,11 @@
 import json
 import sqlite3
 
-_db = sqlite3.connect("db.sqlite3", check_same_thread=False)
+
+DATABASE_PATH = 'charging/db.sqlite3'
+
+
+_db = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
 _db.execute('PRAGMA foreign_keys=ON;')
 
 # Create DB and schema if it doesn't exist already
