@@ -1,8 +1,9 @@
+import json
 from typing import Any
 
 from flask import Flask, jsonify, request
+from db import add_event
 
-from charging.db import add_event
 
 app = Flask(__name__)
 
@@ -27,6 +28,13 @@ def reserve_now(serial_number: str):
     add_event('reserve_now', serial_number, token)
 
     return _get_message('OK')
+
+
+'''
+@app.get('/api/get/<serial_number>')
+def test_get(serial_number: str):
+    return _get_message(get_event('reserve_now', serial_number))
+'''
 
 
 if __name__ == '__main__':

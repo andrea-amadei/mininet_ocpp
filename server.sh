@@ -1,3 +1,3 @@
 #!/bin/sh
 
-sudo "$(dirname "$0")/venv/bin/python" "$(dirname "$0")/ocpp/server.py" "$@"
+"$(dirname "$0")/venv/bin/python" "$(dirname "$0")/charging/server.py" "$@"

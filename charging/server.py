@@ -10,10 +10,12 @@ from ocpp.routing import on, after
 from ocpp.v201 import ChargePoint as Cp, call, call_result
 from websockets import Subprotocol
 
-from charging.db import get_event, purge_events
+from db import get_event, purge_events
 
 logging.basicConfig(level=logging.INFO)
 
+
+SERVER_CONFIG_FILE = 'charging/server_config.yaml'
 
 # Will be loaded from server_config.yaml on startup
 ACCEPTED_TOKENS = []
@@ -338,7 +340,7 @@ def load_config() -> bool:
     global HEARTBEAT_INTERVAL
 
     # Open server config file
-    with open("server_config.yaml", "r") as file:
+    with open(SERVER_CONFIG_FILE, "r") as file:
         try:
             # Parse YAML content
             content = yaml.safe_load(file)
